@@ -15,34 +15,70 @@ from tqdm import tqdm
 from trafilatura import extract, fetch_url
 from trafilatura.settings import DEFAULT_CONFIG
 
-
 #설정
 START_DATE = "2025.05.01"
-END_DATE = "2025.10.31"
-NUM_WORKERS = 6 # 병렬 처리 수
-MAX_TRIALS = 3 # 최대 재시도 횟수
+END_DATE = "2025.09.30"
+NUM_WORKERS = 6  # 병렬 처리 수
+MAX_TRIALS = 3   # 최대 재시도 횟수
 SLEEP_TIME = 1.0 # 요청 간 대기 시간
 
-# 강원도 18개 시, 군
+#강원도 18개 시, 군
 REGIONS = [
-    "춘천", "속초", "강릉",
+    #"춘천", "속초",
+    "강릉",
     #"동해", "원주", "삼척",
     #"홍천", "횡성", "영월", "평창", "정선",
     #"철원", "화천", "양구", "인제", "고성",
     #"양양", "태백"
 ]
 
+#봇 의심 차단 방지 헤더
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
+    "Referer": "https://m.search.naver.com/",
+    "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7"
+}
 
 TRAFILATURA_CONFIG = deepcopy(DEFAULT_CONFIG)
-TRAFILATURA_CONFIG["DEFAULT"]["DOWNLOAD_TIMEOUT"] = "5" #최대 5초까지만 대기
-TRAFILATURA_CONFIG["DEFAULT"]["MIN_OUTPUT_SIZE"] = "50" #본문이 50자 이상인 경우만
+TRAFILATURA_CONFIG["DEFAULT"]["DOWNLOAD_TIMEOUT"] = "5"
+TRAFILATURA_CONFIG["DEFAULT"]["MIN_OUTPUT_SIZE"] = "50"
+
+#본문 내 불필요 내용 삭제
+def clean_news_content(text: str) -> str:
+    if not text:
+        return ""
+
+    text = re.sub(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', '', text)
+
+    text = re.sub(r'\[.*?\]', '', text)
+    text = re.sub(r'\(.*?\)', '', text)
+
+    text = re.sub(r'\w+\s*기자\s*=', '', text)
+    text = re.sub(r'\w+\s*기자', '', text)
+
+    text = re.sub(r'<저작권자.*?>', '', text)
+    text = re.sub(r'무단전재.*', '', text)
+    text = re.sub(r'재배포.*금지', '', text)
+    text = re.sub(r'Copyrights.*', '', text, flags=re.IGNORECASE)
+
+    text = re.sub(r'\|', '', text)
+    text = re.sub(r'많이 본 기사', '', text)
+    text = re.sub(r'관련 기사', '', text)
+    text = re.sub(r'오늘의 핫뉴스', '', text)
+    text = re.sub(r'기사 스크랩', '', text)
+
+    text = re.sub(r'\n+', ' ', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+
+    return text
 
 
-# 뉴스 본문 추출 함수
 def get_article_body(url: str) -> Optional[Dict[str, Any]]:
-    """주어진 기사 URL에서 본문 추출"""
     try:
         downloaded = fetch_url(url, config=TRAFILATURA_CONFIG)
+        if downloaded is None:
+            return None
+            
         extracted = extract(
             downloaded,
             output_format="json",
@@ -51,19 +87,27 @@ def get_article_body(url: str) -> Optional[Dict[str, Any]]:
             deduplicate=True,
             config=TRAFILATURA_CONFIG,
         )
+        
         if not extracted:
             return None
+            
         article = json.loads(extracted)
-        if "text" in article and len(article["text"]) >= 50:
+        raw_text = article.get("text", "")
+        
+        #정제함수 호출
+        cleaned_text = clean_news_content(raw_text)
+
+        if len(cleaned_text) >= 50:
+            article["cleaned_text"] = cleaned_text
             article["source_url"] = url
             return article
+            
         return None
     except Exception as e:
-        logger.error(f" Error extracting {url}: {e}")
+        # logger.error(f" Error extracting {url}: {e}")
         return None
 
 
-# 날짜별 뉴스 수집 함수
 def crawl_articles_for_region(region: str) -> List[Dict[str, Any]]:
     query = f"{region} 가뭄"
     encoded_query = quote(query)
@@ -84,22 +128,22 @@ def crawl_articles_for_region(region: str) -> List[Dict[str, Any]]:
 
         while True:
             num_trials = 0
+            response = None
             while num_trials < MAX_TRIALS:
                 try:
-                    response = requests.get(next_url, timeout=10)
+                    response = requests.get(next_url, headers=HEADERS, timeout=10)
+                    response.raise_for_status()
                     break
                 except Exception as e:
                     num_trials += 1
-                    logger.warning(f"Retrying {next_url} ({num_trials}/{MAX_TRIALS}) due to {e}")
                     sleep(SLEEP_TIME)
-            else:
-                logger.error(f"Failed to fetch data for {date_str} after {MAX_TRIALS} retries")
+            
+            if response is None:
                 break
 
             try:
                 request_result = response.json()
             except Exception:
-                logger.warning(f"Invalid JSON on {date_str}")
                 break
 
             if request_result.get("collection") is None:
@@ -119,9 +163,11 @@ def crawl_articles_for_region(region: str) -> List[Dict[str, Any]]:
             with Pool(NUM_WORKERS) as pool:
                 for article in pool.imap_unordered(get_article_body, article_urls):
                     if article:
-                        article["region"] = region
-                        article["date_crawled"] = date_str
-                        all_articles.append(article)
+                        # 결과 리스트에는 지역명과 정제된 본문만 저장
+                        all_articles.append({
+                            "region": region,
+                            "text": article["cleaned_text"]
+                        })
 
             sleep(SLEEP_TIME)
 
@@ -131,23 +177,40 @@ def crawl_articles_for_region(region: str) -> List[Dict[str, Any]]:
     return all_articles
 
 
-# 메인 함수
 if __name__ == "__main__":
     logger.info("강원도 18개 시, 군 가뭄 뉴스 크롤링 시작")
+
+    #요약 정보 담을 리스트
+    summary_data = []
 
     for region in REGIONS:
         logger.info(f"🚗 {region} 지역 수집 시작")
         articles = crawl_articles_for_region(region)
 
-        if not articles:
+        count = 0
+        if articles:
+            df = pd.DataFrame(articles)
+            
+            #중복 제거 (같은 본문 내용은 제거)
+            df = df.drop_duplicates(subset=['text'])
+            
+            #개별 CSV 저장 (컬럼: region, text)
+            df = df[["region", "text"]]
+            filename = f"가뭄_{region}.csv"
+            df.to_csv(filename, index=False, encoding="utf-8-sig")
+            
+            count = len(df)
+            logger.success(f"{region}: {count}개 기사 저장 완료 → {filename}")
+        else:
             logger.warning(f"{region}: 수집된 뉴스가 없습니다.")
-            continue
 
-        df = pd.DataFrame(articles)
-        df = df[["region", "title", "author", "date", "text", "source_url"]]
+        #요약 데이터 추가
+        summary_data.append({"region": region, "count": count})
 
-        filename = f"가뭄_{region}.csv"
-        df.to_csv(filename, index=False, encoding="utf-8-sig")
-        logger.success(f"😊 {region}: {len(df)}개 기사 저장 완료 → {filename}")
-
-    logger.success("전체 지역 크롤링 완료")
+    #전체 요약 파일 저장 (컬럼: region, count)
+    summary_df = pd.DataFrame(summary_data)
+    summary_filename = "강원도_지역별_뉴스갯수.csv"
+    summary_df.to_csv(summary_filename, index=False, encoding="utf-8-sig")
+    
+    logger.success(f"전체 요약 파일 저장 완료 → {summary_filename}")
+    logger.success("전체 지역 크롤링 종료")
