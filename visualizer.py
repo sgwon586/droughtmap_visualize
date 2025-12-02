@@ -1,21 +1,10 @@
 import streamlit as st
 import geopandas as gpd
 import pandas as pd
-import os
-import plotly.express as px
-import plotly.graph_objects as go
+import os 
+import plotly.express as px 
+import plotly.graph_objects as go 
 import numpy as np
-
-
-
-# -----------------------------------------------------------------------------
-# 시각화 코드입니다. 이 코드를 위해 make_map.py에서 데이터를 준비해야 합니다.
-# 실행 결과로 나온 지도는 같이 올려서 일단은 따로 실행하지 않아도 될 것 같습니다.
-# 참고로, streamlit으로 생성한 웹사이트를 닫아도 터미널에서 코드는 계속 실행됩니다.
-# 또한, 실행을 위해서 cmd 창에 streamlit run visualizer.py 명령어를 입력해야 합니다.
-# 이걸 main.py에서 바로 실행하게 하려면 subprocess 모듈을 사용해야 하는데,
-# 일단은 따로 실행하는 걸로 남겨두겠습니다.
-# -----------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------
 # [1] 페이지 기본 설정
@@ -28,21 +17,24 @@ st.title("🗺️ 강원특별자치도 가뭄 위험도 & 뉴스 반응(SII) �
 st.markdown("""
 <style>
     .info-text { font-size:16px !important; font-family: "Malgun Gothic"; line-height: 1.8; }
-    .category-list { margin-top: 10px; }
 </style>
 <div class='info-text'>
     <b>📊 분석 방식:</b><br>
     사용자가 설정한 <b>PVI(가뭄 심각도)</b>와 <b>SII(사회적 관심도)</b>의 기준값을 바탕으로 지역을 4가지 유형으로 분류합니다.<br>
-    <br>
-    <b>📋 카테고리 상세 정의:</b>
-    <ul class='category-list'>
-        <li><span style='color:#FF0000; font-weight:bold'>🔴 잠재적 위험 (Highest Risk)</span> : <b>PVI 높음 / SII 낮음</b> <span style='color:#555; font-size:14px'>(가뭄 수치는 위험 수준이나, 사회적 관심이 부족해 대응이 시급한 사각지대)</span></li>
-        <li><span style='color:#FF8C00; font-weight:bold'>🟠 알려진 위험 (Known Danger)</span> : <b>PVI 높음 / SII 높음</b> <span style='color:#555; font-size:14px'>(가뭄이 심각하며, 이에 대한 사회적 우려도 높은 지역)</span></li>
-        <li><span style='color:#D4AC0D; font-weight:bold'>🟡 관찰 필요 (Observation Needed)</span> : <b>PVI 낮음 / SII 높음</b> <span style='color:#555; font-size:14px'>(수치상으로는 안전하나, 높은 관심도가 관찰되어 예의주시가 필요한 지역)</span></li>
-        <li><span style='color:#008000; font-weight:bold'>🟢 안전 (Safe)</span> : <b>PVI 낮음 / SII 낮음</b> <span style='color:#555; font-size:14px'>(가뭄 위험과 사회적 우려가 모두 낮은 안정적인 지역)</span></li>
-    </ul>
 </div>
 """, unsafe_allow_html=True)
+
+st.subheader("📋 카테고리 상세 정의")
+image_path = "category.png"
+
+#상단 설명 이미지 표시
+if os.path.exists(image_path):
+    # 지도 크기를 1000px로 맞춤
+    st.image(image_path, caption="[그림] PVI와 SII 지표에 따른 4분면 분류 기준", width=1000)
+else:
+    st.warning("⚠️ 'category.png' 파일을 찾을 수 없습니다. 실행 파일과 같은 위치에 이미지를 넣어주세요.")
+
+st.divider()
 
 # -----------------------------------------------------------------------------
 # [2] 데이터 로드 및 전처리 함수
@@ -58,18 +50,22 @@ def load_and_process_data():
     
     if not map_path:
         return None, "지도 파일(parquet)을 찾을 수 없습니다."
-
+    
+    # 지도 파일 로드
     gdf = gpd.read_parquet(map_path)
     if gdf.crs != "epsg:4326":
         gdf = gdf.to_crs(epsg=4326)
-
+    
+    # CSV 데이터 로드
     data_dir = "DATA"
     pvi_path = os.path.join(data_dir, "pvi_result_final.csv")
     news_path = os.path.join(data_dir, "강원도_지역별_뉴스갯수.csv")
-
+    
+    # 없는 경우를 위한 예외처리
     if not os.path.exists(pvi_path) or not os.path.exists(news_path):
         return None, "DATA 폴더 내에 CSV 파일이 없습니다."
-
+    
+    #인코딩 처리 -> 어떤 인코딩 방식인지 모를때를 대비하기 위함
     try: df_pvi = pd.read_csv(pvi_path, encoding='utf-8')
     except: df_pvi = pd.read_csv(pvi_path, encoding='cp949')
 
@@ -77,11 +73,15 @@ def load_and_process_data():
     except:
         try: df_news = pd.read_csv(news_path, encoding='utf-8')
         except: df_news = pd.read_csv(news_path, encoding='cp949')
-
+    # 데이터 로드 완료. 두 번째 인자는 에러 메세지인데, 없으므로 None 반환
     return (gdf, df_pvi, df_news), None
 
+
+
 def normalize_region_name(name):
+    # 지역명 정규화 함수
     if pd.isna(name): return ""
+    #공백 제거 및 접미사 처리
     name = str(name).strip()
     name = name.replace("강원특별자치도", "").replace("강원도", "").strip()
     if len(name) > 1:
@@ -89,6 +89,7 @@ def normalize_region_name(name):
             return name[:-1]
     return name
 
+# SII 점수 계산 함수 (로그 정규화)
 def calculate_sii_score(df, col_name):
     df['log_val'] = np.log1p(df[col_name])
     min_val = df['log_val'].min()
@@ -109,16 +110,18 @@ if error_msg:
 else:
     gdf, df_pvi, df_news = data_tuple
 
-    # 1. 데이터 병합 준비
+    # 데이터 병합 준비
     map_name_col = 'SGG_NM' if 'SGG_NM' in gdf.columns else gdf.columns[0]
     gdf['join_key'] = gdf[map_name_col].apply(normalize_region_name)
     
+    # PVI 데이터 지역명 정규화
     pvi_name_col = '도시' if '도시' in df_pvi.columns else df_pvi.columns[0]
     df_pvi['join_key'] = df_pvi[pvi_name_col].apply(normalize_region_name)
     
+    # 뉴스 데이터 지역명 정규화
     news_name_col = 'region' if 'region' in df_news.columns else df_news.columns[0]
     df_news['join_key'] = df_news[news_name_col].apply(normalize_region_name)
-
+    # 데이터 병합
     merged = gdf.merge(df_pvi[['join_key', 'PVI_Final']], on='join_key', how='left')
     merged = merged.merge(df_news[['join_key', 'count']], on='join_key', how='left')
     
@@ -126,10 +129,12 @@ else:
     merged['count'] = merged['count'].fillna(0)
     merged = calculate_sii_score(merged, 'count')
 
-    # 2. 임계값 설정
+    # 임계값 설정
     pvi_median = merged['PVI_Final'].median()
     sii_median = merged['SII_Score'].median()
-
+    
+    
+    # 사이드바 설정
     with st.sidebar:
         st.header("⚙️ 분석 설정 (0.0 ~ 1.0)")
         
@@ -151,13 +156,13 @@ else:
         SII = \log(\text{뉴스 기사의 개수})
         $$
         """
-
+        # pvi 슬라이더
         pvi_thresh = st.slider(
             "PVI 기준값", 
             0.0, 1.0, float(pvi_median),
             help=pvi_help_text
         )
-        
+        # sii 슬라이더
         sii_thresh = st.slider(
             "SII 기준값", 
             0.0, 1.0, float(sii_median),
@@ -168,7 +173,7 @@ else:
         st.write(f"📊 PVI 중앙값: {pvi_median:.3f}")
         st.write(f"📊 SII 중앙값: {sii_median:.3f}")
 
-    # 3. 카테고리 분류
+    # 카테고리 분류
     def get_category(row):
         is_pvi_high = row['PVI_Final'] >= pvi_thresh
         is_sii_high = row['SII_Score'] >= sii_thresh
@@ -184,7 +189,7 @@ else:
 
     merged['Category'] = merged.apply(get_category, axis=1)
 
-    # 4. 중심점 계산
+    # 중심점 계산
     temp_gdf = merged.copy().to_crs(epsg=5179)
     temp_gdf['centroid'] = temp_gdf.geometry.centroid
     temp_gdf = temp_gdf.set_geometry('centroid').to_crs(epsg=4326)
@@ -193,7 +198,7 @@ else:
     merged_points['lat'] = temp_gdf.geometry.y
     merged_points['lon'] = temp_gdf.geometry.x
 
-    # 5. 지도 시각화
+    # 지도 시각화
     merged = merged.set_index('join_key')
 
     color_map = {
@@ -204,7 +209,7 @@ else:
     }
     
     category_orders = {"Category": ["🔴 잠재적 위험", "🟠 알려진 위험", "🟡 관찰 필요", "🟢 안전"]}
-
+    # 지도 및 레이아웃 설정
     fig = px.choropleth_map(
         merged,
         geojson=merged.geometry,
@@ -220,7 +225,7 @@ else:
         custom_data=[merged.index, merged['PVI_Final'], merged['SII_Score'], merged['count'], merged['Category']]
     )
 
-    # 툴팁 디자인
+    # 툴팁 디자인 -> 마우스를 올렸을때 나타나는 정보
     fig.update_traces(
         hovertemplate="<br>".join([
             "<b style='font-size:16px'>%{customdata[0]}</b>",
@@ -245,6 +250,7 @@ else:
         hoverinfo='skip'
     ))
 
+    # 지도 너비를 1000으로 설정
     fig.update_layout(
         margin={"r":0,"t":40,"l":0,"b":0},
         font=dict(color="black", family="Malgun Gothic"),
@@ -260,7 +266,7 @@ else:
     )
 
     # -------------------------------------------------------------------------
-    # 초기 실행 시(기본값) 지도 자동 저장 (최초 1회만 생성됨)
+    # 지도 자동 저장 (최초 1회만 생성됨)
     # -------------------------------------------------------------------------
     if 'default_map_saved' not in st.session_state:
         try:
@@ -272,13 +278,13 @@ else:
         except Exception as e:
             # kaleido 패키지가 없거나 권한 문제 시 에러 무시
             print(f"⚠️ 지도 저장 실패 (kaleido 설치 필요): {e}")
-
+    # 지도 출력
     st.plotly_chart(
         fig, 
         width='content',
         config={'scrollZoom': True, 'displayModeBar': True}
     )
-
+    # 데이터프레임 출력
     st.subheader("📋 지역별 상세 데이터")
     st.dataframe(
         merged[[map_name_col, 'PVI_Final', 'count', 'SII_Score', 'Category']]
@@ -286,5 +292,3 @@ else:
         .style.background_gradient(subset=['PVI_Final', 'SII_Score'], cmap='Reds'),
         width='stretch'
     )
-
-    
