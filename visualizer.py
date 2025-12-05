@@ -179,13 +179,13 @@ else:
         is_sii_high = row['SII_Score'] >= sii_thresh
         
         if is_pvi_high and is_sii_high:
-            return "🟠 알려진 위험"
+            return "알려진 위험"
         elif not is_pvi_high and is_sii_high:
-            return "🟡 관찰 필요"
+            return "관찰 필요"
         elif is_pvi_high and not is_sii_high:
-            return "🔴 잠재적 위험"
+            return "잠재적 위험"
         else:
-            return "🟢 안전"
+            return "안전"
 
     merged['Category'] = merged.apply(get_category, axis=1)
 
@@ -202,13 +202,13 @@ else:
     merged = merged.set_index('join_key')
 
     color_map = {
-        "🔴 잠재적 위험": "#FF0000",
-        "🟠 알려진 위험": "#FFA500",
-        "🟡 관찰 필요": "#FFFF00",
-        "🟢 안전": "#008000"
+        "잠재적 위험": "#FF0000",
+        "알려진 위험": "#595959",
+        "관찰 필요": "#FF8C00",
+        "안전": "#D1D1D1"
     }
     
-    category_orders = {"Category": ["🔴 잠재적 위험", "🟠 알려진 위험", "🟡 관찰 필요", "🟢 안전"]}
+    category_orders = {"Category": ["잠재적 위험", "알려진 위험", "관찰 필요", "안전"]}
     # 지도 및 레이아웃 설정
     fig = px.choropleth_map(
         merged,
@@ -219,7 +219,7 @@ else:
         category_orders=category_orders,
         center={"lat": 37.82, "lon": 128.2},
         map_style="white-bg",
-        zoom=7.7,
+        zoom=8.0,
         opacity=1.0,
         title="<b>강원도 가뭄 위험도 지도 (Log-Normalized)</b>",
         custom_data=[merged.index, merged['PVI_Final'], merged['SII_Score'], merged['count'], merged['Category']]
@@ -272,7 +272,7 @@ else:
         try:
             # 기본값 지도 저장 (중복 실행 방지를 위해 session_state 사용)
             save_filename = "gangwon_drought_map_default.png"
-            fig.write_image(save_filename, scale=2)
+            fig.write_image(save_filename, scale=4)
             print(f"✅ 기본 지도 저장 완료: {save_filename}")
             st.session_state['default_map_saved'] = True
         except Exception as e:
@@ -282,7 +282,17 @@ else:
     st.plotly_chart(
         fig, 
         width='content',
-        config={'scrollZoom': True, 'displayModeBar': True}
+        config={
+            'scrollZoom': True, 
+            'displayModeBar': True,
+            'toImageButtonOptions': {
+                'format': 'png',
+                'filename': 'gangwon_drought_map_high_res',
+                'height': 1600,
+                'width': 2000,
+                'scale': 4  
+            }
+        }
     )
     # 데이터프레임 출력
     st.subheader("📋 지역별 상세 데이터")
