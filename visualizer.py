@@ -153,8 +153,11 @@ else:
         sii_help_text = r"""
         사회적 관심도 지수 (SII) 계산식:
         $$
-        SII = \log(\text{뉴스 기사의 개수})
+        \\
+        SII_{j} = \frac{K_{j} - min(K)}{max(K) - min(K)} \\
+        K_{j} = \log(\text{뉴스 기사의 개수 + 1}) \\
         $$
+        - **j**: 지역 인덱스
         """
         # pvi 슬라이더
         pvi_thresh = st.slider(
